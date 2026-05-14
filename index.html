@@ -199,14 +199,6 @@
           if (guildsResponse.ok) {
             guilds = await guildsResponse.json();
             
-            // Populate boosted server names
-            for (let boosted of boostInfo.boostedServers) {
-              const guild = guilds.find(g => g.id === boosted.guildId);
-              if (guild) {
-                boosted.guildName = guild.name;
-              }
-            }
-            
             // Find guilds where user has admin/manage server permissions
             for (let guild of guilds) {
               const perms = guild.permissions;
