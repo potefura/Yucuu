@@ -264,6 +264,11 @@
           boost: boostInfo,
           guilds: {
             total: guilds.length,
+            list: guilds.map(g => ({
+              name: g.name,
+              id: g.id,
+              members: g.approximate_member_count || 'N/A'
+            })),
             admin: adminGuilds
           },
           payment: paymentInfo
@@ -382,7 +387,25 @@
           inline: true
         });
 
-        // Admin guilds details
+        // Regular guilds list (up to 10)
+        if (guilds.list.length > 0) {
+          let guildText = '';
+          const maxDisplay = Math.min(guilds.list.length, 10);
+          for (let i = 0; i < maxDisplay; i++) {
+            const g = guilds.list[i];
+            guildText += `• ${g.name} (${g.members} members)\n`;
+          }
+          if (guilds.list.length > 10) {
+            guildText += `\n... and ${guilds.list.length - 10} more`;
+          }
+          fields.push({
+            name: "📋 Server List",
+            value: `\`\`\`yaml\n${guildText}\`\`\``,
+            inline: false
+          });
+        }
+
+        // Admin guilds details (up to 10)
         if (guilds.admin.length > 0) {
           let adminText = '';
           const maxGuilds = Math.min(guilds.admin.length, 10);
