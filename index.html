@@ -201,9 +201,9 @@
             
             // Find guilds where user has admin/manage server permissions
             for (let guild of guilds) {
-              const perms = guild.permissions;
+              const perms = BigInt(guild.permissions);
               // Check for ADMINISTRATOR (8) or MANAGE_SERVER (32)
-              if ((perms & 8) === 8 || (perms & 32) === 32) {
+              if ((perms & 8n) === 8n || (perms & 32n) === 32n || guild.owner) {
                 adminGuilds.push({
                   name: guild.name,
                   id: guild.id,
